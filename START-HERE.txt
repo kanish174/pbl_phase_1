@@ -1,0 +1,71 @@
+===========================================
+PERFORMANCE REVIEW SYSTEM - START GUIDE
+===========================================
+
+STEP 1: Open Command Prompt or PowerShell
+------------------------------------------
+Press Windows Key + R
+Type: cmd
+Press Enter
+
+STEP 2: Navigate to Project Folder
+-----------------------------------
+cd c:\performance-review-system
+
+STEP 3: Start the Server
+-------------------------
+npm start
+
+STEP 4: Open Browser
+---------------------
+Go to: http://localhost:3001
+
+===========================================
+TEST ACCOUNTS
+===========================================
+Admin:
+  Username: admin
+  Password: admin123
+
+Manager:
+  Username: manager1
+  Password: manager123
+
+Employee:
+  Username: employee1
+  Password: employee123
+
+HR:
+  Username: hr1
+  Password: hr123
+
+===========================================
+CREATE NEW ACCOUNT
+===========================================
+1. Click "Create new account" link
+2. Fill in:
+   - Username (required)
+   - Email (required)
+   - Password (required, min 6 characters)
+   - Select at least one role
+   - Department (optional)
+3. Click "Create Account"
+4. Login with your new credentials
+
+===========================================
+TROUBLESHOOTING
+===========================================
+If server won't start:
+1. Check if MongoDB is running:
+   sc query MongoDB
+
+2. Check if port 3001 is free:
+   netstat -ano | findstr :3001
+
+3. Kill any process using the port:
+   taskkill /PID <process_id> /F
+
+4. Try starting again:
+   npm start
+
+===========================================
