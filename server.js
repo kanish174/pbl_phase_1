@@ -12,6 +12,7 @@ const criteriaRoutes = require('./routes/criteria');
 const notificationRoutes = require('./routes/notifications');
 const projectRoutes = require('./routes/projects');
 const performanceRoutes = require('./routes/performance');
+const leaveRoutes = require('./routes/leaves');
 
 const app = express();
 
@@ -61,6 +62,7 @@ app.use('/api/criteria', criteriaRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/performance', performanceRoutes);
+app.use('/api/leaves', leaveRoutes);
 
 // Error handling middleware
 app.use((error, req, res, next) => {
@@ -79,4 +81,9 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Access the application at: http://localhost:${PORT}`);
+  if (process.env.GOOGLE_CLIENT_ID) {
+    console.log('Google employee login: ENABLED');
+  } else {
+    console.log('Google employee login: DISABLED (set GOOGLE_CLIENT_ID in .env)');
+  }
 });

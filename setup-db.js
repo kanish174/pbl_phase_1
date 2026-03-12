@@ -8,35 +8,8 @@ async function setupDatabase() {
         await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/performance_review');
         console.log('Connected to MongoDB');
 
-        // Create default admin user if none exists
-        const adminExists = await User.findOne({ roles: 'admin' });
-        
-        if (!adminExists) {
-            const adminUser = new User({
-                username: 'admin',
-                email: 'admin@company.com',
-                password: 'admin123',
-                roles: ['admin'],
-                department: 'IT'
-            });
-            
-            await adminUser.save();
-            console.log('Default admin user created:');
-            console.log('Username: admin');
-            console.log('Password: admin123');
-        } else {
-            console.log('Admin user already exists');
-        }
-
-        // Create sample users
+        // Create sample users (HR + employees only)
         const sampleUsers = [
-            {
-                username: 'manager1',
-                email: 'manager1@company.com',
-                password: 'manager123',
-                roles: ['manager'],
-                department: 'Sales'
-            },
             {
                 username: 'employee1',
                 email: 'employee1@company.com',

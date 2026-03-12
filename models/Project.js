@@ -19,6 +19,11 @@ const projectSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  logDeadline: {
+    date: Date,
+    time: String,
+    message: String
+  },
   dailyLogs: {
     type: [{
       employee: { 
@@ -33,6 +38,14 @@ const projectSchema = new mongoose.Schema({
         type: String, 
         enum: ['completed', 'in-progress', 'blocked'], 
         default: 'in-progress' 
+      },
+      missedDeadline: { type: Boolean, default: false },
+      missedReason: String,
+      reasonApproved: { type: Boolean, default: false },
+      reasonReviewStatus: {
+        type: String,
+        enum: ['not_required', 'pending', 'approved', 'rejected'],
+        default: 'not_required'
       },
       createdAt: { type: Date, default: Date.now }
     }],

@@ -3,8 +3,8 @@ const Review = require('../models/Review');
 const { auth, authorize } = require('../middleware/auth');
 const router = express.Router();
 
-// Get all reviews (for managers/admins)
-router.get('/all', auth, authorize(['manager', 'admin', 'hr']), async (req, res) => {
+// Get all reviews (for hr)
+router.get('/all', auth, authorize(['hr']), async (req, res) => {
   try {
     const reviews = await Review.find()
       .populate('employee', 'username email')
@@ -17,7 +17,7 @@ router.get('/all', auth, authorize(['manager', 'admin', 'hr']), async (req, res)
   }
 });
 
-router.post('/', auth, authorize(['manager', 'admin']), async (req, res) => {
+router.post('/', auth, authorize(['hr']), async (req, res) => {
   try {
     const review = new Review({ ...req.body, reviewer: req.user._id });
     await review.save();
@@ -38,7 +38,7 @@ router.get('/employee/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, authorize(['manager', 'admin']), async (req, res) => {
+router.put('/:id', auth, authorize(['hr']), async (req, res) => {
   try {
     const { ratings, feedback, status } = req.body;
     const overallScore = ratings.reduce((sum, r) => sum + r.score, 0) / ratings.length;

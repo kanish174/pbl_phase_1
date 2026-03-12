@@ -16,7 +16,7 @@
             <div class="auth-card">
                 <div class="auth-header">
                     <h2>Welcome Back</h2>
-                    <p>Sign in to your account</p>
+                    <p>HR uses password login. Employees must use Google Sign-In.</p>
                 </div>
                 <form onsubmit="login(event)" class="auth-form">
                     <div class="form-group">
@@ -29,40 +29,12 @@
                     </div>
                     <button type="submit" class="btn btn-primary">Sign In</button>
                 </form>
-                <div class="auth-footer">
-                    <a href="#" onclick="showRegister()">Create new account</a>
+                <div id="googleLoginSection" style="display: none; margin-top: 12px;">
+                    <div style="text-align: center; color: #64748b; font-size: 12px; margin: 8px 0;">OR</div>
+                    <div id="googleLoginButton" style="display: flex; justify-content: center;"></div>
                 </div>
-            </div>
-        </div>
-
-        <!-- Register Form -->
-        <div id="registerForm" class="auth-container" style="display: none;">
-            <div class="auth-card">
-                <div class="auth-header">
-                    <h2>Create Account</h2>
-                    <p>Join the performance review system</p>
-                </div>
-                <form onsubmit="register(event)" class="auth-form">
-                    <div class="form-group">
-                        <label>Username</label>
-                        <input type="text" id="regUsername" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Email</label>
-                        <input type="email" id="regEmail" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <input type="password" id="regPassword" required minlength="6">
-                    </div>
-                    <div class="form-group">
-                        <label>Department (Optional)</label>
-                        <input type="text" id="regDepartment" placeholder="e.g., Engineering, Sales">
-                    </div>
-                    <button type="submit" class="btn btn-primary">Create Account</button>
-                </form>
                 <div class="auth-footer">
-                    <a href="#" onclick="showLogin()">Back to Sign In</a>
+                    <span>Account creation is managed by HR.</span>
                 </div>
             </div>
         </div>
@@ -90,13 +62,17 @@
                         <i class="fas fa-star"></i>
                         <span>Reviews</span>
                     </a>
-                    <a href="#" class="nav-item" onclick="showSection('employees'); return false;">
+                    <a href="#" class="nav-item" onclick="employeesSectionMode='management'; showSection('employees'); return false;">
                         <i class="fas fa-users"></i>
                         <span>Employees</span>
                     </a>
                     <a href="#" class="nav-item" onclick="showSection('projects'); return false;">
                         <i class="fas fa-folder"></i>
                         <span>Projects</span>
+                    </a>
+                    <a href="#" class="nav-item" onclick="showSection('leaves'); return false;">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>Leaves</span>
                     </a>
                     <a href="#" class="nav-item" onclick="showSection('forms'); return false;">
                         <i class="fas fa-plus-circle"></i>
@@ -126,6 +102,7 @@
                                 <span id="userInfo" class="user-name"></span>
                                 <span id="userRole" class="user-role"></span>
                             </div>
+                            <button id="changePasswordBtn" onclick="openChangePasswordModal()" class="btn btn-secondary btn-sm" style="display: none;">Change Password</button>
                             <button onclick="logout()" class="btn btn-secondary btn-sm">Logout</button>
                         </div>
                     </div>
@@ -252,6 +229,10 @@
                     <section id="projectsSection" class="content-section" style="display: none;">
                     </section>
 
+                    <!-- Leaves Section -->
+                    <section id="leavesSection" class="content-section" style="display: none;">
+                    </section>
+
                     <!-- Forms Section -->
                     <section id="formsSection" class="content-section" style="display: none;">
                         <div id="criteriaForm" class="form-card">
@@ -320,8 +301,10 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
-    <script src="performance.js"></script>
-    <script src="projects.js"></script>
+    <script src="app.js?v=10"></script>
+    <script src="performance.js?v=4"></script>
+    <script src="projects.js?v=3"></script>
+    <script src="leaves.js?v=3"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
 </body>
 </html>

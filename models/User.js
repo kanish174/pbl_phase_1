@@ -5,28 +5,41 @@ const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  mustChangePassword: { type: Boolean, default: false },
   roles: [{ 
     type: String, 
-    enum: ['admin', 'manager', 'hr', 'employee'], 
+    enum: ['hr', 'employee'], 
     default: ['employee'] 
   }],
   role: { 
     type: String, 
-    enum: ['admin', 'manager', 'hr', 'employee'], 
+    enum: ['hr', 'employee'], 
     default: 'employee',
     get: function() {
       return this.roles && this.roles.length > 0 ? this.roles[0] : 'employee';
     }
   },
   department: String,
-  // Simplified Performance Metrics
+  // Performance Dashboard Data
   performanceMetrics: {
-    performanceLevel: { type: String, default: 'Average' },
-    circularScore: { type: Number, default: 0 },
-    attendance: { type: Number, default: 0 },
-    tasks: { type: Number, default: 0 },
-    teamwork: { type: Number, default: 0 },
-    punctuality: { type: Number, default: 0 }
+    type: {
+      performanceLevel: { type: String, enum: ['Excellent', 'Good', 'Average', 'Below Average', 'Poor'], default: 'Average' },
+      circularScore: { type: Number, default: 0, min: 0, max: 100 },
+      attendance: { type: Number, default: 0, min: 0, max: 100 },
+      tasks: { type: Number, default: 0, min: 0, max: 100 },
+      teamwork: { type: Number, default: 0, min: 0, max: 100 },
+      punctuality: { type: Number, default: 0, min: 0, max: 100 },
+      monthlyResetKey: { type: String, default: '' }
+    },
+    default: () => ({
+      performanceLevel: 'Average',
+      circularScore: 0,
+      attendance: 0,
+      tasks: 0,
+      teamwork: 0,
+      punctuality: 0,
+      monthlyResetKey: ''
+    })
   },
   monthlyPerformance: [{
     month: String,

@@ -1,7 +1,34 @@
 // Load performance dashboard for a user
+let employeeDashboardMonthContext = null;
+
+function getComputedOverallScore(attendance, tasks, teamwork, punctuality) {
+    return Math.round((
+        Number(attendance || 0) +
+        Number(tasks || 0) +
+        Number(teamwork || 0) +
+        Number(punctuality || 0)
+    ) / 4);
+}
+
+function getPerformanceLevelFromScore(score) {
+    if (score >= 90) return 'Excellent';
+    if (score >= 75) return 'Good';
+    if (score >= 60) return 'Average';
+    if (score >= 40) return 'Below Average';
+    return 'Poor';
+}
+
 async function loadPerformanceDashboard(userId, isOwnDashboard = true) {
     try {
         const data = await apiCall(`/performance/${userId}`);
+        const attendanceMeta = await getDynamicAttendanceFromLeaves(userId, new Date().getFullYear());
+        if (!data.performanceMetrics) {
+            data.performanceMetrics = {};
+        }
+        if (attendanceMeta.attendance !== null) {
+            data.performanceMetrics.attendance = attendanceMeta.attendance;
+        }
+        data._attendanceMeta = attendanceMeta;
         renderPerformanceDashboard(data, userId, isOwnDashboard);
     } catch (error) {
         console.error('Error loading performance dashboard:', error);
@@ -21,13 +48,29 @@ async function loadPerformanceDashboard(userId, isOwnDashboard = true) {
 // Render performance dashboard
 function renderPerformanceDashboard(data, userId, isOwnDashboard) {
     const container = document.getElementById('performanceDashboard');
-    const canEdit = currentUser.roles.some(r => ['admin', 'hr'].includes(r));
+    const canEdit = currentUser.roles.some(r => ['hr'].includes(r));
     
     const metrics = data.performanceMetrics || {};
+    const attendanceMeta = data._attendanceMeta || { attendance: metrics.attendance || 0, year: new Date().getFullYear(), leaveDays: 0, isDynamic: false };
     const monthlyData = data.monthlyPerformance || [];
     const achievements = data.achievements || [];
+    const computedCurrentScore = getComputedOverallScore(
+        attendanceMeta.attendance || 0,
+        metrics.tasks || 0,
+        metrics.teamwork || 0,
+        metrics.punctuality || 0
+    );
+    const computedPerformanceLevel = getPerformanceLevelFromScore(computedCurrentScore);
     
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = toMonthKey(new Date());
+    const monthOptions = getRecentMonthKeys(12)
+        .map(monthKey => `<option value="${monthKey}" ${monthKey === currentMonth ? 'selected' : ''}>${formatMonthKey(monthKey)}</option>`)
+        .join('');
+    employeeDashboardMonthContext = {
+        currentMonth,
+        currentScore: computedCurrentScore,
+        monthlyMap: new Map(monthlyData.map(entry => [entry.month, Number(entry.score || 0)]))
+    };
     
     container.innerHTML = `
         <div class="performance-dashboard">
@@ -35,9 +78,7 @@ function renderPerformanceDashboard(data, userId, isOwnDashboard) {
                 <h2>Employee Name: ${data.username}</h2>
                 <label>Select Month: </label>
                 <select id="employeeMonthSelector" onchange="updateEmployeePerformance(this.value)" style="padding: 8px; border-radius: 4px; border: 1px solid #ccc;">
-                    <option value="${currentMonth}">${new Date().toLocaleDateString('en-US', {month: 'long', year: 'numeric'})}</option>
-                    <option value="${new Date(new Date().setMonth(new Date().getMonth()-1)).toISOString().slice(0, 7)}">${new Date(new Date().setMonth(new Date().getMonth()-1)).toLocaleDateString('en-US', {month: 'long', year: 'numeric'})}</option>
-                    <option value="${new Date(new Date().setMonth(new Date().getMonth()-2)).toISOString().slice(0, 7)}">${new Date(new Date().setMonth(new Date().getMonth()-2)).toLocaleDateString('en-US', {month: 'long', year: 'numeric'})}</option>
+                    ${monthOptions}
                 </select>
             </div>
             
@@ -49,21 +90,38 @@ function renderPerformanceDashboard(data, userId, isOwnDashboard) {
                             <circle cx="90" cy="90" r="70" fill="none" stroke="#f1f5f9" stroke-width="12"/>
                             <circle cx="90" cy="90" r="70" fill="none" stroke="#3b82f6" stroke-width="12"
                                 stroke-dasharray="${2 * Math.PI * 70}" 
-                                stroke-dashoffset="${2 * Math.PI * 70 * (1 - (metrics.circularScore || 0) / 100)}"
+                                stroke-dashoffset="${2 * Math.PI * 70 * (1 - (computedCurrentScore / 100))}"
                                 stroke-linecap="round"/>
                         </svg>
                         <div class="circular-score-text">
-                            <div class="circular-score-value">${metrics.circularScore || 0}</div>
+                            <div class="circular-score-value">${computedCurrentScore}</div>
                             <div class="circular-score-label">out of 100</div>
                         </div>
                     </div>
-                    <div class="performance-level-badge level-${(metrics.performanceLevel || 'average').toLowerCase().replace(' ', '-')}">
-                        ${metrics.performanceLevel || 'Average'}
+                    <div class="performance-level-badge level-${computedPerformanceLevel.toLowerCase().replace(' ', '-')}">
+                        ${computedPerformanceLevel}
                     </div>
                 </div>
                 
                 <div class="metrics-grid">
-                    ${renderMetricCard('Attendance', metrics.attendance || 0, 'calendar-check', 'attendance', userId, canEdit)}
+                    <div class="metric-card">
+                        <div class="metric-header">
+                            <h4>Attendance</h4>
+                            <div class="metric-icon metric-attendance">
+                                <i class="fas fa-calendar-check"></i>
+                            </div>
+                        </div>
+                        <div class="metric-value">${attendanceMeta.attendance || 0}%</div>
+                        <div class="metric-progress">
+                            <div class="metric-progress-bar progress-attendance" style="width: ${attendanceMeta.attendance || 0}%"></div>
+                        </div>
+                        <div style="font-size: 12px; color: #64748b; margin-top: 10px;">
+                            ${attendanceMeta.isDynamic
+                                ? `Auto from approved leave in ${attendanceMeta.year}: ${attendanceMeta.leaveDays} day(s)`
+                                : 'Attendance metric'
+                            }
+                        </div>
+                    </div>
                     ${renderMetricCard('Tasks', metrics.tasks || 0, 'tasks', 'tasks', userId, canEdit)}
                     ${renderMetricCard('Teamwork', metrics.teamwork || 0, 'users', 'teamwork', userId, canEdit)}
                     ${renderMetricCard('Punctuality', metrics.punctuality || 0, 'clock', 'punctuality', userId, canEdit)}
@@ -92,11 +150,24 @@ function renderPerformanceDashboard(data, userId, isOwnDashboard) {
         </div>
     `;
     
-    loadLeaderboard();
+    loadLeaderboard(currentMonth);
 }
 
 function updateEmployeePerformance(month) {
-    loadLeaderboard();
+    if (employeeDashboardMonthContext) {
+        const monthScore = month === employeeDashboardMonthContext.currentMonth
+            ? employeeDashboardMonthContext.currentScore
+            : Number(employeeDashboardMonthContext.monthlyMap.get(month) || 0);
+        const scoreValue = document.querySelector('.circular-score-value');
+        if (scoreValue) scoreValue.textContent = monthScore;
+        const circle = document.querySelector('.circular-score svg circle:last-child');
+        if (circle) {
+            const circumference = 2 * Math.PI * 70;
+            const offset = circumference * (1 - (monthScore / 100));
+            circle.setAttribute('stroke-dashoffset', offset);
+        }
+    }
+    loadLeaderboard(month);
 }
 
 // Render metric card
@@ -150,7 +221,7 @@ function renderAchievementBadge(achievement, userId, canEdit) {
             <div class="achievement-icon">${achievement.icon || '🏆'}</div>
             <div class="achievement-title">${achievement.title}</div>
             <div class="achievement-date">${date}</div>
-            ${canEdit && currentUser.roles.some(r => ['admin', 'hr'].includes(r)) ? 
+            ${canEdit && currentUser.roles.some(r => ['hr'].includes(r)) ? 
                 `<button class="btn btn-secondary btn-sm" style="position: absolute; top: 4px; right: 4px; padding: 4px 8px;" 
                     onclick="event.stopPropagation(); deleteAchievement('${userId}', '${achievement._id}')">
                     <i class="fas fa-times"></i>
@@ -163,6 +234,11 @@ function renderAchievementBadge(achievement, userId, canEdit) {
 
 // Edit metric
 async function editMetric(userId, metricType, currentValue) {
+    if (metricType === 'attendance') {
+        alert('Attendance is auto-calculated from approved yearly leave and cannot be edited manually.');
+        return;
+    }
+
     const metricNames = {
         attendance: 'Attendance',
         tasks: 'Tasks Completion',
@@ -204,62 +280,61 @@ async function editMetric(userId, metricType, currentValue) {
 async function saveMetric(event, userId, metricType) {
     event.preventDefault();
     try {
+        if (metricType === 'attendance') {
+            alert('Attendance is auto-calculated from approved yearly leave and cannot be edited manually.');
+            return;
+        }
+
         const value = parseInt(document.getElementById('metricValue').value);
         const updateData = {};
         updateData[metricType] = value;
-        
-        console.log('Saving metric:', metricType, 'with value:', value);
-        console.log('Update data:', updateData);
-        console.log('User ID:', userId);
         
         const response = await apiCall(`/performance/${userId}/metrics`, {
             method: 'PUT',
             body: JSON.stringify(updateData)
         });
         
-        console.log('Metric update response:', response);
-        
         event.target.closest('.modal').remove();
         
-        // Immediately update UI with returned data
-        if (response.performanceMetrics) {
-            updatePerformanceUI(userId, response.performanceMetrics);
-        }
+        // Reload the entire dashboard to get fresh data
+        loadPerformanceDashboard(userId, userId === currentUser.id);
         
         alert('Metric updated successfully!');
     } catch (error) {
-        console.error('Error updating metric:', error);
         alert('Error updating metric: ' + error.message);
     }
 }
 
 // Update performance UI without full reload
 function updatePerformanceUI(userId, metrics) {
-    console.log('Updating UI with metrics:', metrics);
-    
+    const attendanceText = document.querySelector('.metric-card .metric-value')?.textContent || '0';
+    const attendance = parseInt(String(attendanceText).replace('%', ''), 10) || Number(metrics.attendance || 0);
+    const tasks = Number(metrics.tasks || 0);
+    const teamwork = Number(metrics.teamwork || 0);
+    const punctuality = Number(metrics.punctuality || 0);
+    const computedScore = getComputedOverallScore(attendance, tasks, teamwork, punctuality);
+    const computedPerformanceLevel = getPerformanceLevelFromScore(computedScore);
+
     // Update circular score
     const scoreValue = document.querySelector('.circular-score-value');
     if (scoreValue) {
-        scoreValue.textContent = metrics.circularScore || 0;
-        console.log('Updated score to:', metrics.circularScore);
+        scoreValue.textContent = computedScore;
     }
     
     // Update performance level badge
     const levelBadge = document.querySelector('.performance-level-badge');
     if (levelBadge) {
-        const newLevel = (metrics.performanceLevel || 'average').toLowerCase().replace(' ', '-');
+        const newLevel = computedPerformanceLevel.toLowerCase().replace(' ', '-');
         levelBadge.className = `performance-level-badge level-${newLevel}`;
-        levelBadge.textContent = metrics.performanceLevel || 'Average';
-        console.log('Updated level badge to:', metrics.performanceLevel);
+        levelBadge.textContent = computedPerformanceLevel;
     }
     
     // Update circular progress
     const circle = document.querySelector('.circular-score svg circle:last-child');
     if (circle) {
         const circumference = 2 * Math.PI * 70;
-        const offset = circumference * (1 - (metrics.circularScore || 0) / 100);
+        const offset = circumference * (1 - (computedScore / 100));
         circle.setAttribute('stroke-dashoffset', offset);
-        console.log('Updated circle progress for score:', metrics.circularScore);
     }
     
     // Update individual metric cards
@@ -276,7 +351,6 @@ function updatePerformanceUI(userId, metrics) {
             const progressBar = card.querySelector('.metric-progress-bar');
             if (valueEl) valueEl.textContent = metrics[metricType] + '%';
             if (progressBar) progressBar.style.width = metrics[metricType] + '%';
-            console.log(`Updated ${metricType} to:`, metrics[metricType]);
         }
     });
 }
@@ -433,9 +507,14 @@ function showAchievementDetails(title, description, date) {
 }
 
 // Load leaderboard
-async function loadLeaderboard() {
+async function loadLeaderboard(month = null) {
     try {
-        const leaderboard = await apiCall('/performance/leaderboard/all');
+        const currentMonth = toMonthKey(new Date());
+        const selectedMonth = month || currentMonth;
+        const endpoint = selectedMonth === currentMonth
+            ? '/performance/leaderboard/all'
+            : `/performance/leaderboard/monthly?month=${encodeURIComponent(selectedMonth)}`;
+        const leaderboard = await apiCall(endpoint);
         const container = document.getElementById('leaderboardContainer');
         
         if (!container) return;
@@ -504,4 +583,47 @@ async function loadModalLeaderboard() {
             container.innerHTML = `<div class="leaderboard-empty"><p>Error: ${error.message}</p></div>`;
         }
     }
+}
+
+async function getDynamicAttendanceFromLeaves(userId, year) {
+    try {
+        const allLeaves = await apiCall('/leaves');
+        const approvedEmployeeLeaves = allLeaves.filter(leave => {
+            const leaveEmployeeId = leave.employee?._id || leave.employee;
+            return String(leaveEmployeeId) === String(userId) && leave.status === 'approved';
+        });
+
+        const leaveDays = approvedEmployeeLeaves.reduce((sum, leave) => {
+            return sum + calculateLeaveDaysForYear(startOfDayUtc(leave.startDate), startOfDayUtc(leave.endDate), year);
+        }, 0);
+
+        const daysInYear = isLeapYearForAttendance(year) ? 366 : 365;
+        const attendance = Math.max(0, Math.min(100, Math.round(((daysInYear - leaveDays) / daysInYear) * 100)));
+        return { attendance, leaveDays, year, isDynamic: true };
+    } catch (error) {
+        console.error('Failed to calculate dynamic attendance:', error);
+        return { attendance: null, leaveDays: 0, year, isDynamic: false };
+    }
+}
+
+function isLeapYearForAttendance(year) {
+    return (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+}
+
+function startOfDayUtc(dateInput) {
+    const date = new Date(dateInput);
+    if (Number.isNaN(date.getTime())) return null;
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function calculateLeaveDaysForYear(startUtc, endUtc, year) {
+    if (startUtc === null || endUtc === null) return 0;
+    const yearStart = Date.UTC(year, 0, 1);
+    const yearEnd = Date.UTC(year, 11, 31);
+
+    const overlapStart = Math.max(startUtc, yearStart);
+    const overlapEnd = Math.min(endUtc, yearEnd);
+    if (overlapEnd < overlapStart) return 0;
+
+    return Math.floor((overlapEnd - overlapStart) / 86400000) + 1;
 }

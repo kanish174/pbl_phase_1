@@ -20,6 +20,7 @@ MONGODB_URI=mongodb://localhost:27017/performance_review
 JWT_SECRET=your_secure_jwt_secret_key_change_this_in_production
 SESSION_SECRET=your_secure_session_secret_key_change_this_in_production
 NODE_ENV=development
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
 ```
 
 ### 3. Start MongoDB

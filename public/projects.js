@@ -4,7 +4,12 @@ async function loadProjectsSection() {
         const projects = await apiCall('/projects');
         const container = document.getElementById('projectsSection');
         const userRoles = currentUser.roles || [currentUser.role] || [];
-        const isHR = userRoles.includes('admin') || userRoles.includes('hr');
+        const isHR = userRoles.includes('hr');
+        
+        console.log('Loading projects section');
+        console.log('Current user:', currentUser);
+        console.log('User roles:', userRoles);
+        console.log('Is HR:', isHR);
         
         container.innerHTML = `
             <div class="table-card">
@@ -27,6 +32,7 @@ async function loadProjectsSection() {
 
 // Render project card
 function renderProjectCard(project, isHR) {
+    console.log('Rendering project card, isHR:', isHR);
     const statusColors = {
         'active': 'success',
         'completed': 'info',
@@ -49,6 +55,7 @@ function renderProjectCard(project, isHR) {
             </div>
             <div class="project-actions">
                 <button class="btn btn-primary btn-sm" onclick="viewProjectDetails('${project._id}')">View Details</button>
+                ${isHR ? `<button class="btn btn-secondary btn-sm" onclick="setDeadline('${project._id}')"><i class="fas fa-clock"></i> Set Deadline</button>` : ''}
                 ${isHR ? `<button class="btn btn-danger btn-sm" onclick="deleteProject('${project._id}')"><i class="fas fa-trash"></i> Delete</button>` : ''}
                 ${!isHR ? `<button class="btn btn-secondary btn-sm" onclick="showDailyLogModal('${project._id}')"><i class="fas fa-plus"></i> Add Log</button>` : ''}
             </div>
@@ -190,7 +197,7 @@ async function viewProjectDetails(projectId) {
     try {
         const project = await apiCall(`/projects/${projectId}`);
         const userRoles = currentUser.roles || [currentUser.role] || [];
-        const isHR = userRoles.includes('admin') || userRoles.includes('hr');
+        const isHR = userRoles.includes('hr');
         
         const modal = document.createElement('div');
         modal.className = 'modal';
@@ -222,6 +229,14 @@ async function viewProjectDetails(projectId) {
                         <i class="fas fa-plus"></i> Add Today's Log
                     </button>` : ''}
                     
+                    ${project.logDeadline && project.logDeadline.date ? `
+                        <div style="background: #fef3c7; border: 1px solid #fbbf24; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                            <strong><i class="fas fa-clock"></i> Deadline:</strong> 
+                            ${new Date(project.logDeadline.date).toLocaleDateString()} at ${project.logDeadline.time || '23:59'}
+                            ${project.logDeadline.message ? `<br><small>${project.logDeadline.message}</small>` : ''}
+                        </div>
+                    ` : ''}
+                    
                     <div class="table-container">
                         <table class="data-table">
                             <thead>
@@ -231,19 +246,43 @@ async function viewProjectDetails(projectId) {
                                     <th>Work Done</th>
                                     <th>Hours</th>
                                     <th>Status</th>
+                                    ${isHR ? '<th>Action</th>' : ''}
                                 </tr>
                             </thead>
                             <tbody>
                                 ${!project.dailyLogs || project.dailyLogs.length === 0 ? 
-                                    '<tr><td colspan="5" style="text-align: center;">No logs submitted yet</td></tr>' :
+                                    `<tr><td colspan="${isHR ? 6 : 5}" style="text-align: center;">No logs submitted yet</td></tr>` :
                                     project.dailyLogs.sort((a, b) => new Date(b.date) - new Date(a.date)).map(log => `
-                                        <tr>
+                                        ${(() => {
+                                            const rawReasonStatus = log.reasonReviewStatus || (log.reasonApproved ? 'approved' : '');
+                                            const reasonStatus = log.missedDeadline
+                                                ? ((rawReasonStatus === 'approved' || rawReasonStatus === 'rejected') ? rawReasonStatus : 'pending')
+                                                : 'not_required';
+                                            const reasonStatusHtml = log.missedDeadline
+                                                ? `<br><small style="display:inline-block;margin-top:4px;" class="status-badge status-${reasonStatus === 'approved' ? 'completed' : reasonStatus === 'rejected' ? 'draft' : 'pending'}">Reason ${reasonStatus}</small>`
+                                                : '';
+                                            const actionHtml = (isHR && reasonStatus === 'pending')
+                                                ? `<td style="white-space: nowrap;">
+                                                    <button class="btn btn-primary btn-sm" onclick="approveReason('${project._id}', '${log._id}')">Approve</button>
+                                                    <button class="btn btn-danger btn-sm" style="margin-left: 6px;" onclick="rejectReason('${project._id}', '${log._id}')">Reject</button>
+                                                </td>`
+                                                : (isHR ? '<td>-</td>' : '');
+                                            return `
+                                        <tr style="${log.missedDeadline && !log.reasonApproved ? 'background: #fef3c7;' : ''}">
                                             <td>${new Date(log.date).toLocaleDateString()}</td>
                                             <td>${log.employee?.username || 'Unknown'}</td>
-                                            <td style="max-width: 300px; word-wrap: break-word;">${log.workDone || 'No description'}</td>
+                                            <td style="max-width: 300px; word-wrap: break-word;">
+                                                ${log.workDone || 'No description'}
+                                                ${log.missedDeadline ? '<br><span style="color: #f59e0b; font-size: 12px;"><i class="fas fa-exclamation-triangle"></i> Missed Deadline</span>' : ''}
+                                                ${log.missedReason ? `<br><small style="color: #64748b;">Reason: ${log.missedReason}</small>` : ''}
+                                                ${reasonStatusHtml}
+                                            </td>
                                             <td>${log.hoursSpent}h</td>
                                             <td><span class="status-badge status-${log.status === 'completed' ? 'completed' : log.status === 'blocked' ? 'draft' : 'pending'}">${log.status}</span></td>
+                                            ${actionHtml}
                                         </tr>
+                                    `;
+                                        })()}
                                     `).join('')
                                 }
                             </tbody>
@@ -260,42 +299,65 @@ async function viewProjectDetails(projectId) {
 
 // Show daily log modal
 function showDailyLogModal(projectId) {
-    const modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.style.display = 'flex';
-    modal.innerHTML = `
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Submit Daily Log</h3>
-                <button class="modal-close" onclick="this.closest('.modal').remove()">
-                    <i class="fas fa-times"></i>
-                </button>
+    // First check if deadline passed
+    apiCall(`/projects/${projectId}`).then(project => {
+        let deadlinePassed = false;
+        if (project.logDeadline && project.logDeadline.date) {
+            const deadlineDate = new Date(project.logDeadline.date);
+            const [hours, minutes] = (project.logDeadline.time || '23:59').split(':');
+            deadlineDate.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+            deadlinePassed = new Date() > deadlineDate;
+        }
+        
+        const modal = document.createElement('div');
+        modal.className = 'modal';
+        modal.style.display = 'flex';
+        modal.innerHTML = `
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Submit Daily Log</h3>
+                    <button class="modal-close" onclick="this.closest('.modal').remove()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form onsubmit="submitDailyLog(event, '${projectId}')" class="modal-form">
+                    ${deadlinePassed ? `
+                        <div style="background: #fee2e2; border: 1px solid #ef4444; border-radius: 8px; padding: 12px; margin-bottom: 16px; color: #991b1b;">
+                            <strong><i class="fas fa-exclamation-circle"></i> Deadline Passed!</strong>
+                            <p style="margin-top: 8px; font-size: 14px;">You must provide a reason for late submission. HR will review and approve.</p>
+                        </div>
+                        <div class="form-group">
+                            <label>Reason for Late Submission *</label>
+                            <textarea id="missedReason" rows="3" required placeholder="Explain why you couldn't submit on time..."></textarea>
+                        </div>
+                    ` : ''}
+                    <div class="form-group">
+                        <label>Work Done Today</label>
+                        <textarea id="logWorkDone" rows="4" required placeholder="Describe what you accomplished today..."></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Hours Spent</label>
+                        <input type="number" id="logHours" min="0" max="24" step="0.5" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select id="logStatus" required>
+                            <option value="in-progress">In Progress</option>
+                            <option value="completed">Completed</option>
+                            <option value="blocked">Blocked</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button type="submit" class="btn btn-primary">Submit Log</button>
+                    </div>
+                </form>
             </div>
-            <form onsubmit="submitDailyLog(event, '${projectId}')" class="modal-form">
-                <div class="form-group">
-                    <label>Work Done Today</label>
-                    <textarea id="logWorkDone" rows="4" required placeholder="Describe what you accomplished today..."></textarea>
-                </div>
-                <div class="form-group">
-                    <label>Hours Spent</label>
-                    <input type="number" id="logHours" min="0" max="24" step="0.5" required>
-                </div>
-                <div class="form-group">
-                    <label>Status</label>
-                    <select id="logStatus" required>
-                        <option value="in-progress">In Progress</option>
-                        <option value="completed">Completed</option>
-                        <option value="blocked">Blocked</option>
-                    </select>
-                </div>
-                <div class="modal-actions">
-                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
-                    <button type="submit" class="btn btn-primary">Submit Log</button>
-                </div>
-            </form>
-        </div>
-    `;
-    document.body.appendChild(modal);
+        `;
+        document.body.appendChild(modal);
+    }).catch(error => {
+        alert('Error loading project: ' + error.message);
+    });
 }
 
 // Submit daily log
@@ -305,15 +367,18 @@ async function submitDailyLog(event, projectId) {
         const workDone = document.getElementById('logWorkDone').value;
         const hoursSpent = parseFloat(document.getElementById('logHours').value);
         const status = document.getElementById('logStatus').value;
+        const missedReasonEl = document.getElementById('missedReason');
+        const missedReason = missedReasonEl ? missedReasonEl.value : null;
         
         if (!workDone || !hoursSpent || !status) {
             alert('Please fill all fields');
             return;
         }
         
-        console.log('Submitting log:', { projectId, workDone, hoursSpent, status });
-        console.log('Token:', token);
-        console.log('API URL:', `${API_BASE}/projects/${projectId}/logs`);
+        const logData = { workDone, hoursSpent, status };
+        if (missedReason) {
+            logData.missedReason = missedReason;
+        }
         
         const response = await fetch(`${API_BASE}/projects/${projectId}/logs`, {
             method: 'POST',
@@ -321,13 +386,10 @@ async function submitDailyLog(event, projectId) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({ workDone, hoursSpent, status })
+            body: JSON.stringify(logData)
         });
         
-        console.log('Response status:', response.status);
         const text = await response.text();
-        console.log('Response text:', text);
-        
         let data;
         try {
             data = JSON.parse(text);
@@ -340,7 +402,7 @@ async function submitDailyLog(event, projectId) {
         }
         
         event.target.closest('.modal').remove();
-        alert('Daily log submitted successfully!');
+        alert(data.message);
         loadProjectsSection();
     } catch (error) {
         console.error('Submit log error:', error);
@@ -360,5 +422,108 @@ async function deleteProject(projectId) {
         loadProjectsSection();
     } catch (error) {
         alert('Error deleting project: ' + error.message);
+    }
+}
+
+// Set deadline for daily logs (HR only)
+async function setDeadline(projectId) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.innerHTML = `
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Set Daily Log Deadline</h3>
+                <button class="modal-close" onclick="this.closest('.modal').remove()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form onsubmit="submitDeadline(event, '${projectId}')" class="modal-form">
+                <div class="form-group">
+                    <label>Deadline Date</label>
+                    <input type="date" id="deadlineDate" required>
+                </div>
+                <div class="form-group">
+                    <label>Deadline Time</label>
+                    <input type="time" id="deadlineTime" value="23:59" required>
+                </div>
+                <div class="form-group">
+                    <label>Message to Team (Optional)</label>
+                    <textarea id="deadlineMessage" rows="2" placeholder="e.g., Please submit logs by end of day"></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Set Deadline</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+// Submit deadline
+async function submitDeadline(event, projectId) {
+    event.preventDefault();
+    try {
+        const date = document.getElementById('deadlineDate').value;
+        const time = document.getElementById('deadlineTime').value;
+        const message = document.getElementById('deadlineMessage').value;
+        
+        await apiCall(`/projects/${projectId}/deadline`, {
+            method: 'PUT',
+            body: JSON.stringify({ date, time, message })
+        });
+        
+        event.target.closest('.modal').remove();
+        alert('Deadline set successfully!');
+        loadProjectsSection();
+    } catch (error) {
+        alert('Error setting deadline: ' + error.message);
+    }
+}
+
+// Approve missed log reason (HR only)
+async function approveReason(projectId, logId) {
+    if (!confirm('Approve this late submission reason?')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/projects/${projectId}/logs/${logId}/approve`, {
+            method: 'PUT'
+        });
+        
+        alert('Reason approved!');
+        // Refresh the current view
+        const modal = document.querySelector('.modal');
+        if (modal) {
+            modal.remove();
+            viewProjectDetails(projectId);
+        }
+    } catch (error) {
+        alert('Error approving reason: ' + error.message);
+    }
+}
+
+// Reject missed log reason (HR only)
+async function rejectReason(projectId, logId) {
+    if (!confirm('Reject this late submission reason?')) {
+        return;
+    }
+    
+    try {
+        await apiCall(`/projects/${projectId}/logs/${logId}/reject`, {
+            method: 'PUT'
+        });
+        
+        alert('Reason rejected!');
+        // Refresh the current view
+        const modal = document.querySelector('.modal');
+        if (modal) {
+            modal.remove();
+            viewProjectDetails(projectId);
+        }
+    } catch (error) {
+        alert('Error rejecting reason: ' + error.message);
     }
 }

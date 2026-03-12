@@ -1,7 +1,68 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const https = require('https');
 const User = require('../models/User');
+const { auth } = require('../middleware/auth');
 const router = express.Router();
+const EMPLOYEE_EMAIL_PATTERN = /^[a-z0-9]+(?:\d+)?\.reviewpro@gmail\.com$/;
+
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    https
+      .get(url, (response) => {
+        let body = '';
+        response.on('data', (chunk) => {
+          body += chunk;
+        });
+        response.on('end', () => {
+          try {
+            const parsed = JSON.parse(body || '{}');
+            resolve(parsed);
+          } catch (error) {
+            reject(new Error('Invalid JSON response from Google token verification'));
+          }
+        });
+      })
+      .on('error', (error) => reject(error));
+  });
+}
+
+function buildAuthPayload(user) {
+  return {
+    id: user._id,
+    username: user.username,
+    email: user.email,
+    roles: user.roles,
+    role: user.role,
+    department: user.department,
+    mustChangePassword: Boolean(user.mustChangePassword)
+  };
+}
+
+function isEmployeeOnly(user) {
+  const roles = user?.roles || [user?.role];
+  return roles.includes('employee') && !roles.includes('hr');
+}
+
+async function verifyGoogleIdToken(idToken, expectedAudience) {
+  const tokenInfoUrl = `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`;
+  const tokenInfo = await fetchJson(tokenInfoUrl);
+
+  if (tokenInfo.error_description || tokenInfo.error) {
+    throw new Error(tokenInfo.error_description || tokenInfo.error || 'Invalid Google token');
+  }
+  if (String(tokenInfo.aud) !== String(expectedAudience)) {
+    throw new Error('Google token audience mismatch');
+  }
+  if (tokenInfo.email_verified !== 'true') {
+    throw new Error('Google account email is not verified');
+  }
+  if (!tokenInfo.email) {
+    throw new Error('Google token does not include email');
+  }
+
+  return tokenInfo;
+}
 
 // Add CORS headers for auth routes
 router.use((req, res, next) => {
@@ -18,72 +79,9 @@ router.use((req, res, next) => {
 });
 
 router.post('/register', async (req, res) => {
-  try {
-    const { username, email, password, roles, role, department } = req.body;
-    
-    // Validate required fields
-    if (!username || !email || !password) {
-      return res.status(400).json({ message: 'Username, email, and password are required' });
-    }
-    
-    // Handle both single role and multiple roles
-    let userRoles = [];
-    if (roles && Array.isArray(roles)) {
-      userRoles = roles;
-    } else if (role) {
-      userRoles = [role];
-    } else {
-      userRoles = ['employee'];
-    }
-    
-    // Check if MongoDB is connected
-    const mongoose = require('mongoose');
-    if (mongoose.connection.readyState !== 1) {
-      return res.status(503).json({ 
-        message: 'Database not available. Please ensure MongoDB is running.' 
-      });
-    }
-    
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ username }, { email }] 
-    });
-    
-    if (existingUser) {
-      return res.status(400).json({ 
-        message: existingUser.username === username ? 
-          'Username already exists' : 'Email already exists' 
-      });
-    }
-    
-    const user = new User({ 
-      username, 
-      email, 
-      password, 
-      roles: userRoles,
-      department 
-    });
-    
-    await user.save();
-    res.status(201).json({ message: 'User registered successfully' });
-  } catch (error) {
-    console.error('Registration error:', error);
-    
-    // Handle specific MongoDB errors
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyPattern)[0];
-      return res.status(400).json({ 
-        message: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists` 
-      });
-    }
-    
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({ message: messages.join(', ') });
-    }
-    
-    res.status(400).json({ message: error.message || 'Registration failed' });
-  }
+  res.status(403).json({
+    message: 'Self-signup is disabled. Please contact HR for your account credentials.',
+  });
 });
 
 router.post('/login', async (req, res) => {
@@ -103,26 +101,33 @@ router.post('/login', async (req, res) => {
     }
     
     const user = await User.findOne({ username });
-    if (!user || !(await user.comparePassword(password))) {
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    if (isEmployeeOnly(user)) {
+      return res.status(403).json({
+        message: 'Employee password login is disabled. Please use Google Sign-In.'
+      });
+    }
+
+    if (!(await user.comparePassword(password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
     // Store user in session
     req.session.userId = user._id;
-    req.session.user = {
-      id: user._id,
-      username: user.username,
-      roles: user.roles,
-      role: user.role, // Primary role for backward compatibility
-      department: user.department
-    };
+    const sessionPayload = buildAuthPayload(user);
+    req.session.user = sessionPayload;
     
     // Also provide JWT token for API compatibility
     const token = jwt.sign(
       { 
         id: user._id, 
         username: user.username, 
-        roles: user.roles 
+        email: user.email,
+        roles: user.roles,
+        mustChangePassword: Boolean(user.mustChangePassword)
       }, 
       process.env.JWT_SECRET, 
       { expiresIn: '24h' }
@@ -132,16 +137,85 @@ router.post('/login', async (req, res) => {
       message: 'Login successful',
       token, 
       user: {
-        id: user._id,
-        username: user.username,
-        roles: user.roles,
-        role: user.role,
-        department: user.department
+        ...sessionPayload
       }
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: error.message || 'Login failed' });
+  }
+});
+
+router.get('/google-config', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID || '';
+  res.json({
+    enabled: Boolean(clientId),
+    clientId
+  });
+});
+
+router.post('/google-login', async (req, res) => {
+  try {
+    const googleClientId = process.env.GOOGLE_CLIENT_ID;
+    if (!googleClientId) {
+      return res.status(503).json({ message: 'Google login is not configured on server' });
+    }
+
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({ message: 'Google credential is required' });
+    }
+
+    const tokenInfo = await verifyGoogleIdToken(credential, googleClientId);
+    const email = String(tokenInfo.email).toLowerCase().trim();
+    if (!EMPLOYEE_EMAIL_PATTERN.test(email)) {
+      return res.status(403).json({
+        message: 'Google account is not an approved ReviewPro employee email format'
+      });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(403).json({
+        message: 'No employee account found for this Google email. Please contact HR.'
+      });
+    }
+
+    const roles = user.roles || [user.role];
+    if (!roles.includes('employee')) {
+      return res.status(403).json({ message: 'Google login is allowed only for employee accounts' });
+    }
+
+    req.session.userId = user._id;
+    const googleUserPayload = {
+      ...buildAuthPayload(user),
+      mustChangePassword: false
+    };
+
+    req.session.user = googleUserPayload;
+
+    const token = jwt.sign(
+      {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        roles: user.roles,
+        mustChangePassword: false
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+
+    res.json({
+      message: 'Google login successful',
+      token,
+      user: {
+        ...googleUserPayload
+      }
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(401).json({ message: error.message || 'Google login failed' });
   }
 });
 
@@ -161,6 +235,47 @@ router.get('/me', (req, res) => {
   }
   
   res.json({ user: req.session.user });
+});
+
+router.post('/change-password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ message: 'Current password and new password are required' });
+    }
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (isEmployeeOnly(user)) {
+      return res.status(403).json({
+        message: 'Employee password change is disabled. Employees use Google Sign-In.'
+      });
+    }
+
+    const passwordMatches = await user.comparePassword(currentPassword);
+    if (!passwordMatches) {
+      return res.status(401).json({ message: 'Current password is incorrect' });
+    }
+
+    user.password = newPassword;
+    user.mustChangePassword = false;
+    await user.save();
+
+    if (req.session && req.session.user) {
+      req.session.user.mustChangePassword = false;
+    }
+
+    res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: error.message || 'Could not change password' });
+  }
 });
 
 // Health check endpoint

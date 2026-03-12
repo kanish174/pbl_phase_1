@@ -93,4 +93,5 @@ MONGODB_URI=mongodb://localhost:27017/performance_review
 JWT_SECRET=your_secure_jwt_secret_key
 SESSION_SECRET=your_secure_session_secret_key
 NODE_ENV=development
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
 ```

@@ -3,7 +3,7 @@ const Criteria = require('../models/Criteria');
 const { auth, authorize } = require('../middleware/auth');
 const router = express.Router();
 
-router.post('/', auth, authorize(['admin']), async (req, res) => {
+router.post('/', auth, authorize(['hr']), async (req, res) => {
   try {
     // Ensure user is authenticated
     if (!req.user || !req.user._id) {
@@ -28,7 +28,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, authorize(['admin']), async (req, res) => {
+router.put('/:id', auth, authorize(['hr']), async (req, res) => {
   try {
     const criteria = await Criteria.findByIdAndUpdate(req.params.id, req.body, { new: true });
     res.json(criteria);
