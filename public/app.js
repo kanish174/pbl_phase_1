@@ -1095,6 +1095,9 @@ async function loadDashboardData(selectedMonthKey = null) {
                     <button class="btn btn-primary" onclick="showSection('employees')">
                         <i class="fas fa-user-plus"></i> Add Employee
                     </button>
+                    <button class="btn btn-warning" onclick="hrDashboardAction('Send Warning Email')" style="background:#f59e0b;color:#fff;border:none;">
+                        <i class="fas fa-envelope"></i> Send Warning Email
+                    </button>
                 </div>
 
                 <div class="hr-modern-grid">
